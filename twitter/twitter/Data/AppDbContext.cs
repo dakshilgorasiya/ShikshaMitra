@@ -63,6 +63,17 @@ namespace twitter.Data
                 .WithMany(c => c.Likes)
                 .HasForeignKey(l => l.CommentId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<User>().HasData(new User
+            {
+                Id = 1,
+                Username = "admin",
+                Email = "admin@gmail.com",
+                Password = "admin",
+                Role = UserRole.Admin,
+            });
+
+            base.OnModelCreating(modelBuilder);
         }
     }
 }
