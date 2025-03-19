@@ -450,4 +450,50 @@ app.MapGet("comment/reply/{id}", async (int id, AppDbContext db) => {
 
 });
 
+app.MapGet("report/getAllReports", async (AppDbContext db) =>
+{
+    var reports = await db.Reports.Include(t => t.Tweet).Include(t => t.Owner).Select(t => new
+    {
+        Id = t.Id,
+        Title = t.Title,
+        Content = t.Content,
+        IsSolved = t.IsSolved,
+        Owner = new
+        {
+            Id = t.Owner.Id,
+            Username = t.Owner.Username,
+            Email = t.Owner.Email,
+        },
+        Tweet = new
+        {
+            Id = t.Tweet.Id,
+            Title = t.Tweet.Title,
+            Tags = t.Tweet.Tags,
+            TweetData = t.Tweet.TweetData,
+        }
+    }).ToListAsync();
+
+    if (reports == null)
+    {
+        return Results.NotFound(new { message = "No report found" });
+    }
+
+    return Results.Ok(reports);
+}).RequireAuthorization("AdminOnly");
+
+app.MapPatch("report/markAsSolved/{id}", async (int id, AppDbContext db) =>
+{
+    var report = db.Reports.Find(id);
+
+    if (report == null)
+    {
+        return Results.NotFound();
+    }
+
+    report.IsSolved = true;
+    await db.SaveChangesAsync();
+
+    return Results.Ok();
+}).RequireAuthorization("AdminOnly");
+
 app.Run();
