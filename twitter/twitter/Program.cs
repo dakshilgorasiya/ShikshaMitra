@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using BCrypt.Net;
 using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -154,12 +155,120 @@ app.MapPost("/user/login", async (LoginUserDTO loginUser, AppDbContext db, IConf
     return Results.Ok(new { Token = tokenString });
 });
 
-app.MapGet("/protected", (ClaimsPrincipal user) =>
+app.MapPost("/tweet/create", async (ClaimsPrincipal user, CreateTweetDTO newTweet, AppDbContext db, HttpContext httpContext) =>
 {
-    var email = user.FindFirst(ClaimTypes.Email)?.Value;
-    return Results.Ok($"Hello, {email}. This is a protected route!");
-})
-.RequireAuthorization();
+    // Extract user ID from JWT claims
+    var userId = int.Parse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
+    if(userId == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    // Create a new Tweet
+    var tweet = new Tweet
+    {
+        OwnerId = userId,
+        Title = newTweet.Title,
+        Tags = newTweet.Tags,
+        TweetData = newTweet.TweetData,
+    };
+
+    db.Tweets.Add(tweet);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/tweet/{tweet.Id}", tweet);
+}).RequireAuthorization();
+
+app.MapPost("/like/tweet", async (TweetLikeDTO like, AppDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+    if (userIdClaim == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    int userId = int.Parse(userIdClaim.Value);
+
+    // Check if the user already liked the tweet
+    var existingLike = await db.Likes.FirstOrDefaultAsync(l => l.TweetId == like.TweetId && l.OwnerId == userId);
+
+    if (existingLike != null)
+    {
+        // Unlike (remove the like)
+        db.Likes.Remove(existingLike);
+        await db.SaveChangesAsync();
+        return Results.Ok("Tweet unliked.");
+    }
+    else
+    {
+        // Like (add new like)
+        var newLike = new Like
+        {
+            TweetId = like.TweetId,
+            OwnerId = userId
+        };
+
+        db.Likes.Add(newLike);
+        await db.SaveChangesAsync();
+        return Results.Ok("Tweet liked.");
+    }
+}).RequireAuthorization();
+
+app.MapPost("/like/comment", async (CommentLikeDTO like, AppDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+    if (userIdClaim == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    int userId = int.Parse(userIdClaim.Value);
+
+    // Check if the user already liked the tweet
+    var existingLike = await db.Likes.FirstOrDefaultAsync(l => l.TweetId == like.CommentId && l.OwnerId == userId);
+
+    if (existingLike != null)
+    {
+        // Unlike (remove the like)
+        db.Likes.Remove(existingLike);
+        await db.SaveChangesAsync();
+        return Results.Ok("Tweet unliked.");
+    }
+    else
+    {
+        // Like (add new like)
+        var newLike = new Like
+        {
+            CommentId = like.CommentId,
+            OwnerId = userId
+        };
+
+        db.Likes.Add(newLike);
+        await db.SaveChangesAsync();
+        return Results.Ok("Tweet liked.");
+    }
+}).RequireAuthorization();
+
+app.MapGet("/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext db, ClaimsPrincipal user) => {
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+    if (userIdClaim == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    int userId = int.Parse(userIdClaim.Value);
+
+    var newComment = new Comment
+    {
+        Content = comment.Content,
+        OwnerId= userId,
+        TweetId = comment.TweetId,
+    };
+
+    db.Comments.Add(newComment);
+    await db.SaveChangesAsync();
+    return Results.Ok("Commented");
+});
 
 app.Run();
