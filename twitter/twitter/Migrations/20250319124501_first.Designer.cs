@@ -11,7 +11,7 @@ using twitter.Data;
 namespace twitter.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250318155453_first")]
+    [Migration("20250319124501_first")]
     partial class first
     {
         /// <inheritdoc />
@@ -137,6 +137,9 @@ namespace twitter.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<int>("OwnerId")
                         .HasColumnType("int");
 
@@ -166,7 +169,6 @@ namespace twitter.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("Bio")
-                        .IsRequired()
                         .HasColumnType("longtext");
 
                     b.Property<string>("Email")
@@ -187,6 +189,16 @@ namespace twitter.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Users");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Email = "admin@gmail.com",
+                            Password = "$2a$11$vNjbkXNxpHTRrDBryk/9eOg7t.SyYa0baPysu61zuTFxvwxWgw/4y",
+                            Role = 0,
+                            Username = "admin"
+                        });
                 });
 
             modelBuilder.Entity("twitter.Models.Comment", b =>
