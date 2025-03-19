@@ -233,7 +233,7 @@ app.MapPost("/like/comment", async (CommentLikeDTO like, AppDbContext db, Claims
         // Unlike (remove the like)
         db.Likes.Remove(existingLike);
         await db.SaveChangesAsync();
-        return Results.Ok("Tweet unliked.");
+        return Results.Ok("Comment unliked.");
     }
     else
     {
@@ -246,11 +246,11 @@ app.MapPost("/like/comment", async (CommentLikeDTO like, AppDbContext db, Claims
 
         db.Likes.Add(newLike);
         await db.SaveChangesAsync();
-        return Results.Ok("Tweet liked.");
+        return Results.Ok("Comment liked.");
     }
 }).RequireAuthorization();
 
-app.MapGet("/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext db, ClaimsPrincipal user) => {
+app.MapPost("/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext db, ClaimsPrincipal user) => {
     var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
     if (userIdClaim == null)
     {
@@ -269,6 +269,49 @@ app.MapGet("/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext 
     db.Comments.Add(newComment);
     await db.SaveChangesAsync();
     return Results.Ok("Commented");
+});
+
+app.MapPost("/comment/reply", async (CreateCommentReplyDTO comment, AppDbContext db, ClaimsPrincipal user) => {
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+    if (userIdClaim == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    int userId = int.Parse(userIdClaim.Value);
+
+    var newComment = new Comment
+    {
+        Content = comment.Content,
+        OwnerId = userId,
+        CommentId = comment.CommentId,
+    };
+
+    db.Comments.Add(newComment);
+    await db.SaveChangesAsync();
+    return Results.Ok("Commented");
+});
+
+app.MapPost("/report/create", async (CreateReportDTO report, AppDbContext db, ClaimsPrincipal user) => {
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+    if (userIdClaim == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    int userId = int.Parse(userIdClaim.Value);
+
+    var newReport = new Report
+    {
+        Content = report.Content,
+        OwnerId = userId,
+        Title = report.Title,
+        TweetId = report.TweetId
+    };
+
+    db.Reports.Add(newReport);
+    await db.SaveChangesAsync();
+    return Results.Ok("Reported");
 });
 
 app.Run();
