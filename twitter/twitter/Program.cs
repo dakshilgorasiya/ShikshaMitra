@@ -11,11 +11,14 @@ using System.Security.Claims;
 using BCrypt.Net;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Memory;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var key = Encoding.ASCII.GetBytes(jwtSettings["Secret"]);
+
+builder.Services.AddMemoryCache();
 
 builder.Services.Configure<RouteOptions>(options =>
 {
@@ -314,90 +317,120 @@ app.MapPost("/report/create", async (CreateReportDTO report, AppDbContext db, Cl
     return Results.Ok("Reported");
 });
 
-app.MapGet("/tweet", async (AppDbContext db, int page = 1, int pageSize = 10) =>
+app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, int page = 1, int pageSize = 10) =>
 {
     if (page < 1) page = 1;
     if (pageSize < 1) pageSize = 10;
 
-    var tweetsQuery = db.Tweets
-        .Include(t => t.Owner)
-        .Include(t => t.Comments)
-        .Include(t => t.Likes)
-        .Select(t => new
-        {
-            Id = t.Id,
-            Title = t.Title,
-            TweetData = t.TweetData,
-            Tags = t.Tags,
-            Owner = new
-            {
-                t.Owner.Id,
-                t.Owner.Username,
-                t.Owner.Email
-            },
-            CommentsCount = t.Comments.Count,
-            LikesCount = t.Likes.Count
-        });
+    string cacheKey = $"tweets_page_{page}size{pageSize}";
 
-    var totalTweets = await tweetsQuery.CountAsync();
-    var tweets = await tweetsQuery
-        .Skip((page - 1) * pageSize)
-        .Take(pageSize)
-        .ToListAsync();
-
-    var response = new
+    if (!cache.TryGetValue(cacheKey, out object? cachedTweets))
     {
-        TotalTweets = totalTweets,
-        Page = page,
-        PageSize = pageSize,
-        TotalPages = (int)Math.Ceiling((double)totalTweets / pageSize),
-        Tweets = tweets
-    };
-
-    return Results.Ok(response);
-});
-
-app.MapGet("/tweet/{id}", async (int id, AppDbContext db) =>
-{
-    var tweet = await db.Tweets
-        .Where(t => t.Id == id)
-        .Include(t => t.Owner) // Include Tweet Owner (User)
-        .Include(t => t.Comments) // Include Comments on the Tweet
-            .ThenInclude(c => c.Owner) // Include Comment Owners
-        .Include(t => t.Likes) // Include Likes on the Tweet
-        .Select(t => new
-        {
-            Id = t.Id,
-            Title = t.Title,
-            TweetData = t.TweetData,
-            Tags = t.Tags,
-            Owner = new
+        Console.WriteLine("Chache miss");
+        var tweetsQuery = db.Tweets
+            .Include(t => t.Owner)
+            .Include(t => t.Comments)
+            .Include(t => t.Likes)
+            .Select(t => new
             {
-                t.Owner.Id,
-                t.Owner.Username,
-                t.Owner.Email
-            },
-            Comments = t.Comments.Select(c => new
-            {
-                Id = c.Id,
-                Content = c.Content,
+                Id = t.Id,
+                Title = t.Title,
+                TweetData = t.TweetData,
+                Tags = t.Tags,
                 Owner = new
                 {
-                    c.Owner.Id,
-                    c.Owner.Username
-                }
-            }),
-            CommentsCount = t.Comments.Count, // Count total comments
-            LikesCount = t.Likes.Count // Count total likes
-        })
-        .FirstOrDefaultAsync();
+                    t.Owner.Id,
+                    t.Owner.Username,
+                    t.Owner.Email
+                },
+                CommentsCount = t.Comments.Count,
+                LikesCount = t.Likes.Count
+            });
 
-    if (tweet == null)
-    {
-        return Results.NotFound(new { message = "Tweet not found" });
+        var totalTweets = await tweetsQuery.CountAsync();
+        var tweets = await tweetsQuery
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var response = new
+        {
+            TotalTweets = totalTweets,
+            Page = page,
+            PageSize = pageSize,
+            TotalPages = (int)Math.Ceiling((double)totalTweets / pageSize),
+            Tweets = tweets
+        };
+
+        var cacheEntryOptions = new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+            .SetSlidingExpiration(TimeSpan.FromMinutes(2));
+
+        cache.Set(cacheKey, response, cacheEntryOptions);
+
+        return Results.Ok(response);
     }
+    Console.WriteLine("Cache hit");
 
-    return Results.Ok(tweet);
+    return Results.Ok(cachedTweets);
+});
+
+app.MapGet("/tweet/{id}", async (int id, AppDbContext db, IMemoryCache cache) =>
+{
+
+    string cacheKey = $"tweet_{id}";
+
+    if (!cache.TryGetValue(cacheKey, out object? cachedTweet)) {
+        var tweet = await db.Tweets
+            .Where(t => t.Id == id)
+            .Include(t => t.Owner) // Include Tweet Owner (User)
+            .Include(t => t.Comments) // Include Comments on the Tweet
+                .ThenInclude(c => c.Owner) // Include Comment Owners
+            .Include(t => t.Likes) // Include Likes on the Tweet
+            .Select(t => new
+            {
+                Id = t.Id,
+                Title = t.Title,
+                TweetData = t.TweetData,
+                Tags = t.Tags,
+                Owner = new
+                {
+                    t.Owner.Id,
+                    t.Owner.Username,
+                    t.Owner.Email
+                },
+                Comments = t.Comments.Select(c => new
+                {
+                    Id = c.Id,
+                    Content = c.Content,
+                    Owner = new
+                    {
+                        c.Owner.Id,
+                        c.Owner.Username
+                    }
+                }),
+                CommentsCount = t.Comments.Count, // Count total comments
+                LikesCount = t.Likes.Count // Count total likes
+            })
+            .FirstOrDefaultAsync();
+
+        if (tweet == null)
+        {
+            return Results.NotFound(new { message = "Tweet not found" });
+        }
+
+        var cacheEntryOptions = new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+            .SetSlidingExpiration(TimeSpan.FromMinutes(2));
+
+        Console.WriteLine("Cache miss");
+        cache.Set(cacheKey, tweet, cacheEntryOptions);
+
+        return Results.Ok(tweet);
+    }
+    Console.WriteLine("Cache hit");
+    return Results.Ok(cachedTweet);
+
 });
 
 app.MapGet("comment/tweet/{id}", async (int id, AppDbContext db) => {
