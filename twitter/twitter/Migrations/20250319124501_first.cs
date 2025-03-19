@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore.Metadata;
+﻿using System;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -26,7 +27,7 @@ namespace twitter.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     Password = table.Column<string>(type: "longtext", nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    Bio = table.Column<string>(type: "longtext", nullable: false)
+                    Bio = table.Column<string>(type: "longtext", nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     Role = table.Column<int>(type: "int", nullable: false)
                 },
@@ -75,6 +76,7 @@ namespace twitter.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     TweetData = table.Column<string>(type: "longtext", nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
+                    CreatedAt = table.Column<DateTime>(type: "datetime(6)", nullable: true),
                     OwnerId = table.Column<int>(type: "int", nullable: false)
                 },
                 constraints: table =>
@@ -190,6 +192,11 @@ namespace twitter.Migrations
                         onDelete: ReferentialAction.Cascade);
                 })
                 .Annotation("MySql:CharSet", "utf8mb4");
+
+            migrationBuilder.InsertData(
+                table: "Users",
+                columns: new[] { "Id", "Bio", "Email", "Password", "Role", "Username" },
+                values: new object[] { 1, null, "admin@gmail.com", "$2a$11$vNjbkXNxpHTRrDBryk/9eOg7t.SyYa0baPysu61zuTFxvwxWgw/4y", 0, "admin" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Comments_CommentId",

@@ -134,6 +134,9 @@ namespace twitter.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<int>("OwnerId")
                         .HasColumnType("int");
 
@@ -189,7 +192,7 @@ namespace twitter.Migrations
                         {
                             Id = 1,
                             Email = "admin@gmail.com",
-                            Password = "$2a$11$syMHGVO15Mj1jh14jiY3R.vb3LpnZNL1.JLXhSRgTGYca28ry1VCS",
+                            Password = "$2a$11$vNjbkXNxpHTRrDBryk/9eOg7t.SyYa0baPysu61zuTFxvwxWgw/4y",
                             Role = 0,
                             Username = "admin"
                         });
