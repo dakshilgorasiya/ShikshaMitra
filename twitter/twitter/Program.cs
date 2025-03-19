@@ -314,4 +314,186 @@ app.MapPost("/report/create", async (CreateReportDTO report, AppDbContext db, Cl
     return Results.Ok("Reported");
 });
 
+app.MapGet("/tweet", async (AppDbContext db, int page = 1, int pageSize = 10) =>
+{
+    if (page < 1) page = 1;
+    if (pageSize < 1) pageSize = 10;
+
+    var tweetsQuery = db.Tweets
+        .Include(t => t.Owner)
+        .Include(t => t.Comments)
+        .Include(t => t.Likes)
+        .Select(t => new
+        {
+            Id = t.Id,
+            Title = t.Title,
+            TweetData = t.TweetData,
+            Tags = t.Tags,
+            Owner = new
+            {
+                t.Owner.Id,
+                t.Owner.Username,
+                t.Owner.Email
+            },
+            CommentsCount = t.Comments.Count,
+            LikesCount = t.Likes.Count
+        });
+
+    var totalTweets = await tweetsQuery.CountAsync();
+    var tweets = await tweetsQuery
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .ToListAsync();
+
+    var response = new
+    {
+        TotalTweets = totalTweets,
+        Page = page,
+        PageSize = pageSize,
+        TotalPages = (int)Math.Ceiling((double)totalTweets / pageSize),
+        Tweets = tweets
+    };
+
+    return Results.Ok(response);
+});
+
+app.MapGet("/tweet/{id}", async (int id, AppDbContext db) =>
+{
+    var tweet = await db.Tweets
+        .Where(t => t.Id == id)
+        .Include(t => t.Owner) // Include Tweet Owner (User)
+        .Include(t => t.Comments) // Include Comments on the Tweet
+            .ThenInclude(c => c.Owner) // Include Comment Owners
+        .Include(t => t.Likes) // Include Likes on the Tweet
+        .Select(t => new
+        {
+            Id = t.Id,
+            Title = t.Title,
+            TweetData = t.TweetData,
+            Tags = t.Tags,
+            Owner = new
+            {
+                t.Owner.Id,
+                t.Owner.Username,
+                t.Owner.Email
+            },
+            Comments = t.Comments.Select(c => new
+            {
+                Id = c.Id,
+                Content = c.Content,
+                Owner = new
+                {
+                    c.Owner.Id,
+                    c.Owner.Username
+                }
+            }),
+            CommentsCount = t.Comments.Count, // Count total comments
+            LikesCount = t.Likes.Count // Count total likes
+        })
+        .FirstOrDefaultAsync();
+
+    if (tweet == null)
+    {
+        return Results.NotFound(new { message = "Tweet not found" });
+    }
+
+    return Results.Ok(tweet);
+});
+
+app.MapGet("comment/tweet/{id}", async (int id, AppDbContext db) => {
+    var comment = await db.Comments.Where(c => c.TweetId == id).Include(t => t.Owner).Include(t => t.Likes).Include(t => t.Replies).Select(t => new
+    {
+        Id = t.Id,
+        Content = t.Content,
+        Owner = new
+        {
+            t.Owner.Id,
+            t.Owner.Username,
+            t.Owner.Email
+        },
+        LikesCount = t.Likes.Count,
+        Replies = t.Replies.Count,
+    }
+    ).ToListAsync();
+
+    if (comment == null)
+    {
+        return Results.NotFound(new { message = "Comments not found" });
+    }
+
+    return Results.Ok(comment);
+    
+});
+
+app.MapGet("comment/reply/{id}", async (int id, AppDbContext db) => {
+    var comment = await db.Comments.Where(c => c.CommentId == id).Include(t => t.Owner).Include(t => t.Likes).Include(t => t.Replies).Select(t => new
+    {
+        Id = t.Id,
+        Content = t.Content,
+        Owner = new
+        {
+            t.Owner.Id,
+            t.Owner.Username,
+            t.Owner.Email
+        },
+        LikesCount = t.Likes.Count,
+        Replies = t.Replies.Count,
+    }
+    ).ToListAsync();
+
+    if (comment == null)
+    {
+        return Results.NotFound(new { message = "Comments not found" });
+    }
+
+    return Results.Ok(comment);
+
+});
+
+app.MapGet("report/getAllReports", async (AppDbContext db) =>
+{
+    var reports = await db.Reports.Include(t => t.Tweet).Include(t => t.Owner).Select(t => new
+    {
+        Id = t.Id,
+        Title = t.Title,
+        Content = t.Content,
+        IsSolved = t.IsSolved,
+        Owner = new
+        {
+            Id = t.Owner.Id,
+            Username = t.Owner.Username,
+            Email = t.Owner.Email,
+        },
+        Tweet = new
+        {
+            Id = t.Tweet.Id,
+            Title = t.Tweet.Title,
+            Tags = t.Tweet.Tags,
+            TweetData = t.Tweet.TweetData,
+        }
+    }).ToListAsync();
+
+    if (reports == null)
+    {
+        return Results.NotFound(new { message = "No report found" });
+    }
+
+    return Results.Ok(reports);
+}).RequireAuthorization("AdminOnly");
+
+app.MapPatch("report/markAsSolved/{id}", async (int id, AppDbContext db) =>
+{
+    var report = db.Reports.Find(id);
+
+    if (report == null)
+    {
+        return Results.NotFound();
+    }
+
+    report.IsSolved = true;
+    await db.SaveChangesAsync();
+
+    return Results.Ok();
+}).RequireAuthorization("AdminOnly");
+
 app.Run();
