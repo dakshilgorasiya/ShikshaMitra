@@ -347,7 +347,7 @@ app.MapPost("/api/v1/report/create", async (CreateReportDTO report, AppDbContext
     return Results.Ok("Reported");
 });
 
-app.MapGet("/api/v1/tweet", async (AppDbContext db, IMemoryCache cache, ILogger<Program> log, int page = 1, int pageSize = 10) =>
+app.MapGet("/api/v1/tweet", async (HttpContext context, AppDbContext db, IMemoryCache cache, ILogger<Program> log, int page = 1, int pageSize = 10) =>
 {
     if (page < 1) page = 1;
     if (pageSize < 1) pageSize = 10;
@@ -387,8 +387,14 @@ app.MapGet("/api/v1/tweet", async (AppDbContext db, IMemoryCache cache, ILogger<
         Tweets = tweets
     };
 
+    // Set headers in HttpContext.Response
+    context.Response.Headers["Deprecation"] = "Sun, 20 Apr 2025 00:00:00 GMT";
+    context.Response.Headers["Link"] = "</api/v2/tweet>; rel=\"successor-version\""; // Optional: Point to a newer version
+    context.Response.Headers["Warning"] = "299 - \"This API version will be removed after 20-04-2025. Use /api/v2/tweet instead.\"";
+
     return Results.Ok(response);
 }).RequireRateLimiting("fixed");
+
 
 app.MapGet("/api/v2/tweet", async (AppDbContext db, IMemoryCache cache, ILogger<Program> log, int page = 1, int pageSize = 10) =>
 {
