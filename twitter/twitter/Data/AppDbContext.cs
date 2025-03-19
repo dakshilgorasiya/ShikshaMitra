@@ -64,12 +64,14 @@ namespace twitter.Data
                 .HasForeignKey(l => l.CommentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            string hashedPassword = BCrypt.Net.BCrypt.HashPassword("admin");
+
             modelBuilder.Entity<User>().HasData(new User
             {
                 Id = 1,
                 Username = "admin",
                 Email = "admin@gmail.com",
-                Password = "admin",
+                Password = hashedPassword,
                 Role = UserRole.Admin,
             });
 
