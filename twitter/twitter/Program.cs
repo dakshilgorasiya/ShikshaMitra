@@ -12,6 +12,17 @@ using BCrypt.Net;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Caching.Memory;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Builder;
+using NLog;
+using NLog.Web;
+
+var logger = LogManager.Setup().LoadConfigurationFromFile("nlog.config").GetCurrentClassLogger();
+logger.Info("Starting application...");
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -19,6 +30,10 @@ var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var key = Encoding.ASCII.GetBytes(jwtSettings["Secret"]);
 
 builder.Services.AddMemoryCache();
+
+builder.Logging.ClearProviders();
+
+builder.Host.UseNLog();
 
 builder.Services.Configure<RouteOptions>(options =>
 {
@@ -29,6 +44,16 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(builder.Configuration.GetConnectionString("DefaultConnection"),
     ServerVersion.AutoDetect(builder.Configuration.GetConnectionString("DefaultConnection")))
 );
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("fixed", limiterOptions =>
+    {
+        limiterOptions.Window = TimeSpan.FromSeconds(10); // 10 seconds window
+        limiterOptions.PermitLimit = 3; // Allow 5 requests per 10 seconds
+        limiterOptions.QueueLimit = 0;  // Queue 2 extra requests before rejecting
+    });
+});
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -84,6 +109,8 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
+app.UseRateLimiter();
+
 app.UseAuthentication();
 
 app.UseAuthorization();
@@ -94,7 +121,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.MapGet("/", () =>
+app.MapGet("/", (ILogger<Program> log) =>
 {
     return Results.Text("Hello World");
 });
@@ -317,7 +344,7 @@ app.MapPost("/report/create", async (CreateReportDTO report, AppDbContext db, Cl
     return Results.Ok("Reported");
 });
 
-app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, int page = 1, int pageSize = 10) =>
+app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, ILogger < Program > log,int page = 1, int pageSize = 10) =>
 {
     if (page < 1) page = 1;
     if (pageSize < 1) pageSize = 10;
@@ -326,7 +353,8 @@ app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, int page = 1, i
 
     if (!cache.TryGetValue(cacheKey, out object? cachedTweets))
     {
-        Console.WriteLine("Chache miss");
+
+        log.LogInformation("Cache miss");
         var tweetsQuery = db.Tweets
             .Include(t => t.Owner)
             .Include(t => t.Comments)
@@ -370,17 +398,20 @@ app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, int page = 1, i
 
         return Results.Ok(response);
     }
-    Console.WriteLine("Cache hit");
+
+    log.LogInformation("Cache Hit");
 
     return Results.Ok(cachedTweets);
-});
+}).RequireRateLimiting("fixed");
 
-app.MapGet("/tweet/{id}", async (int id, AppDbContext db, IMemoryCache cache) =>
+app.MapGet("/tweet/{id}", async (int id, AppDbContext db, ILogger < Program > log,IMemoryCache cache) =>
 {
 
     string cacheKey = $"tweet_{id}";
 
     if (!cache.TryGetValue(cacheKey, out object? cachedTweet)) {
+
+        log.LogInformation("Cache miss");
         var tweet = await db.Tweets
             .Where(t => t.Id == id)
             .Include(t => t.Owner) // Include Tweet Owner (User)
@@ -428,7 +459,9 @@ app.MapGet("/tweet/{id}", async (int id, AppDbContext db, IMemoryCache cache) =>
 
         return Results.Ok(tweet);
     }
-    Console.WriteLine("Cache hit");
+
+
+    log.LogInformation("Cache hit");
     return Results.Ok(cachedTweet);
 
 });
