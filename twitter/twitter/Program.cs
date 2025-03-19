@@ -126,7 +126,7 @@ app.MapGet("/", (ILogger<Program> log) =>
     return Results.Text("Hello World");
 });
 
-app.MapPost("/user/register", async (RegisterUserDTO newUser, AppDbContext db) =>
+app.MapPost("/api/v1/user/register", async (RegisterUserDTO newUser, AppDbContext db) =>
 {
     // Check if the email is already in use
     if (await db.Users.AnyAsync(u => u.Email == newUser.Email))
@@ -152,7 +152,7 @@ app.MapPost("/user/register", async (RegisterUserDTO newUser, AppDbContext db) =
     return Results.Created($"/user/{user.Id}", newUser);
 });
 
-app.MapPost("/user/login", async (LoginUserDTO loginUser, AppDbContext db, IConfiguration config) =>
+app.MapPost("/api/v1/user/login", async (LoginUserDTO loginUser, AppDbContext db, IConfiguration config) =>
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Email == loginUser.Email);
     if (user == null || !BCrypt.Net.BCrypt.Verify(loginUser.Password, user.Password))
@@ -185,12 +185,12 @@ app.MapPost("/user/login", async (LoginUserDTO loginUser, AppDbContext db, IConf
     return Results.Ok(new { Token = tokenString });
 });
 
-app.MapPost("/tweet/create", async (ClaimsPrincipal user, CreateTweetDTO newTweet, AppDbContext db, HttpContext httpContext) =>
+app.MapPost("/api/v1/tweet/create", async (ClaimsPrincipal user, CreateTweetDTO newTweet, AppDbContext db, HttpContext httpContext) =>
 {
     // Extract user ID from JWT claims
     var userId = int.Parse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
-    if(userId == null)
+    if (userId == null)
     {
         return Results.Unauthorized();
     }
@@ -207,10 +207,10 @@ app.MapPost("/tweet/create", async (ClaimsPrincipal user, CreateTweetDTO newTwee
     db.Tweets.Add(tweet);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/tweet/{tweet.Id}", tweet);
+    return Results.Created();
 }).RequireAuthorization();
 
-app.MapPost("/like/tweet", async (TweetLikeDTO like, AppDbContext db, ClaimsPrincipal user) =>
+app.MapPost("/api/v1/like/tweet", async (TweetLikeDTO like, AppDbContext db, ClaimsPrincipal user) =>
 {
     var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
     if (userIdClaim == null)
@@ -245,7 +245,7 @@ app.MapPost("/like/tweet", async (TweetLikeDTO like, AppDbContext db, ClaimsPrin
     }
 }).RequireAuthorization();
 
-app.MapPost("/like/comment", async (CommentLikeDTO like, AppDbContext db, ClaimsPrincipal user) =>
+app.MapPost("/api/v1/like/comment", async (CommentLikeDTO like, AppDbContext db, ClaimsPrincipal user) =>
 {
     var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
     if (userIdClaim == null)
@@ -280,7 +280,8 @@ app.MapPost("/like/comment", async (CommentLikeDTO like, AppDbContext db, Claims
     }
 }).RequireAuthorization();
 
-app.MapPost("/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext db, ClaimsPrincipal user) => {
+app.MapPost("/api/v1/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext db, ClaimsPrincipal user) =>
+{
     var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
     if (userIdClaim == null)
     {
@@ -292,7 +293,7 @@ app.MapPost("/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext
     var newComment = new Comment
     {
         Content = comment.Content,
-        OwnerId= userId,
+        OwnerId = userId,
         TweetId = comment.TweetId,
     };
 
@@ -301,7 +302,8 @@ app.MapPost("/comment/tweet", async (CreateCommentTweetDTO comment, AppDbContext
     return Results.Ok("Commented");
 });
 
-app.MapPost("/comment/reply", async (CreateCommentReplyDTO comment, AppDbContext db, ClaimsPrincipal user) => {
+app.MapPost("/api/v1/comment/reply", async (CreateCommentReplyDTO comment, AppDbContext db, ClaimsPrincipal user) =>
+{
     var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
     if (userIdClaim == null)
     {
@@ -322,7 +324,8 @@ app.MapPost("/comment/reply", async (CreateCommentReplyDTO comment, AppDbContext
     return Results.Ok("Commented");
 });
 
-app.MapPost("/report/create", async (CreateReportDTO report, AppDbContext db, ClaimsPrincipal user) => {
+app.MapPost("/api/v1/report/create", async (CreateReportDTO report, AppDbContext db, ClaimsPrincipal user) =>
+{
     var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
     if (userIdClaim == null)
     {
@@ -344,7 +347,50 @@ app.MapPost("/report/create", async (CreateReportDTO report, AppDbContext db, Cl
     return Results.Ok("Reported");
 });
 
-app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, ILogger < Program > log,int page = 1, int pageSize = 10) =>
+app.MapGet("/api/v1/tweet", async (AppDbContext db, IMemoryCache cache, ILogger<Program> log, int page = 1, int pageSize = 10) =>
+{
+    if (page < 1) page = 1;
+    if (pageSize < 1) pageSize = 10;
+
+    var tweetsQuery = db.Tweets
+        .Include(t => t.Owner)
+        .Include(t => t.Comments)
+        .Include(t => t.Likes)
+        .Select(t => new
+        {
+            Id = t.Id,
+            Title = t.Title,
+            TweetData = t.TweetData,
+            Tags = t.Tags,
+            Owner = new
+            {
+                t.Owner.Id,
+                t.Owner.Username,
+                t.Owner.Email
+            },
+            CommentsCount = t.Comments.Count,
+            LikesCount = t.Likes.Count
+        });
+
+    var totalTweets = await tweetsQuery.CountAsync();
+    var tweets = await tweetsQuery
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .ToListAsync();
+
+    var response = new
+    {
+        TotalTweets = totalTweets,
+        Page = page,
+        PageSize = pageSize,
+        TotalPages = (int)Math.Ceiling((double)totalTweets / pageSize),
+        Tweets = tweets
+    };
+
+    return Results.Ok(response);
+}).RequireRateLimiting("fixed");
+
+app.MapGet("/api/v2/tweet", async (AppDbContext db, IMemoryCache cache, ILogger<Program> log, int page = 1, int pageSize = 10) =>
 {
     if (page < 1) page = 1;
     if (pageSize < 1) pageSize = 10;
@@ -372,7 +418,8 @@ app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, ILogger < Progr
                     t.Owner.Email
                 },
                 CommentsCount = t.Comments.Count,
-                LikesCount = t.Likes.Count
+                LikesCount = t.Likes.Count,
+                CreatedAt = t.createdAt,
             });
 
         var totalTweets = await tweetsQuery.CountAsync();
@@ -404,12 +451,13 @@ app.MapGet("/tweet", async (AppDbContext db, IMemoryCache cache, ILogger < Progr
     return Results.Ok(cachedTweets);
 }).RequireRateLimiting("fixed");
 
-app.MapGet("/tweet/{id}", async (int id, AppDbContext db, ILogger < Program > log,IMemoryCache cache) =>
+app.MapGet("/api/v1/tweet/{id}", async (int id, AppDbContext db, ILogger<Program> log, IMemoryCache cache) =>
 {
 
     string cacheKey = $"tweet_{id}";
 
-    if (!cache.TryGetValue(cacheKey, out object? cachedTweet)) {
+    if (!cache.TryGetValue(cacheKey, out object? cachedTweet))
+    {
 
         log.LogInformation("Cache miss");
         var tweet = await db.Tweets
@@ -466,7 +514,8 @@ app.MapGet("/tweet/{id}", async (int id, AppDbContext db, ILogger < Program > lo
 
 });
 
-app.MapGet("comment/tweet/{id}", async (int id, AppDbContext db) => {
+app.MapGet("/api/v1/comment/tweet/{id}", async (int id, AppDbContext db) =>
+{
     var comment = await db.Comments.Where(c => c.TweetId == id).Include(t => t.Owner).Include(t => t.Likes).Include(t => t.Replies).Select(t => new
     {
         Id = t.Id,
@@ -488,10 +537,11 @@ app.MapGet("comment/tweet/{id}", async (int id, AppDbContext db) => {
     }
 
     return Results.Ok(comment);
-    
+
 });
 
-app.MapGet("comment/reply/{id}", async (int id, AppDbContext db) => {
+app.MapGet("/api/v1/comment/reply/{id}", async (int id, AppDbContext db) =>
+{
     var comment = await db.Comments.Where(c => c.CommentId == id).Include(t => t.Owner).Include(t => t.Likes).Include(t => t.Replies).Select(t => new
     {
         Id = t.Id,
@@ -516,7 +566,7 @@ app.MapGet("comment/reply/{id}", async (int id, AppDbContext db) => {
 
 });
 
-app.MapGet("report/getAllReports", async (AppDbContext db) =>
+app.MapGet("/api/v1/report/getAllReports", async (AppDbContext db) =>
 {
     var reports = await db.Reports.Include(t => t.Tweet).Include(t => t.Owner).Select(t => new
     {
@@ -547,7 +597,7 @@ app.MapGet("report/getAllReports", async (AppDbContext db) =>
     return Results.Ok(reports);
 }).RequireAuthorization("AdminOnly");
 
-app.MapPatch("report/markAsSolved/{id}", async (int id, AppDbContext db) =>
+app.MapPatch("/api/v1/report/markAsSolved/{id}", async (int id, AppDbContext db) =>
 {
     var report = db.Reports.Find(id);
 
