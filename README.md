@@ -1,2 +1,2 @@
-# twitterCLone
+# ShikshaMitra
 .NET project
